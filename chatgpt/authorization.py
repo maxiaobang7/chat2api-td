@@ -10,6 +10,10 @@ from chatgpt.refreshToken import rt2ac
 from utils.Logger import logger
 
 
+def is_refresh_token(token):
+    return token and (len(token) == 45 or token.startswith("rt_"))
+
+
 def get_req_token(req_token, seed=None):
     if configs.auto_seed:
         available_token_list = list(set(globals.token_list) - set(globals.error_token_list))
@@ -54,7 +58,7 @@ async def verify_token(req_token):
         if req_token.startswith("eyJhbGciOi") or req_token.startswith("fk-"):
             access_token = req_token
             return access_token
-        elif len(req_token) == 45:
+        elif is_refresh_token(req_token):
             try:
                 if req_token in globals.error_token_list:
                     raise HTTPException(status_code=401, detail="Error RefreshToken")
@@ -69,7 +73,7 @@ async def verify_token(req_token):
 
 async def refresh_all_tokens(force_refresh=False):
     for token in list(set(globals.token_list) - set(globals.error_token_list)):
-        if len(token) == 45:
+        if is_refresh_token(token):
             try:
                 await asyncio.sleep(0.5)
                 await rt2ac(token, force_refresh=force_refresh)

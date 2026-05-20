@@ -2,81 +2,348 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta content="width=device-width, initial-scale=1.0" name="viewport">
-    <title>Tokens 管理</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token 管理</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const apiPrefix = "{{ api_prefix }}";
-            const uploadForm = document.getElementById('uploadForm');
-            const clearForm = document.getElementById('clearForm');
-            const errorButton = document.getElementById('errorButton');
+    <style>
+        :root {
+            color-scheme: light;
+        }
 
-            if (apiPrefix === "None") {
-                uploadForm.action = "/tokens/upload";
-                clearForm.action = "/tokens/clear";
-                errorButton.dataset.api = "/tokens/error";
-            } else {
-                uploadForm.action = `/${apiPrefix}/tokens/upload`;
-                clearForm.action = `/${apiPrefix}/tokens/clear`;
-                errorButton.dataset.api = `/${apiPrefix}/tokens/error`;
-            }
+        body {
+            font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+            background:
+                linear-gradient(90deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+                #f7f8fb;
+            background-size: 28px 28px;
+        }
 
-            errorButton.addEventListener('click', async () => {
-                const response = await fetch(errorButton.dataset.api, {
-                    method: 'POST',
-                });
-                const result = await response.json();
-                const errorTokens = result.error_tokens;
-
-                const errorModal = document.getElementById('errorModal');
-                const errorModalContent = document.getElementById('errorModalContent');
-
-                errorModalContent.innerHTML = errorTokens.map(token => `<p>${token}</p>`).join('');
-                errorModal.classList.remove('hidden');
-            });
-
-            document.getElementById('errorModalClose').addEventListener('click', () => {
-                document.getElementById('errorModal').classList.add('hidden');
-            });
-
-            document.getElementById('errorModalCopy').addEventListener('click', () => {
-                const errorModalContent = document.getElementById('errorModalContent');
-                const textToCopy = errorModalContent.innerText.replace(/\n\n/g, '\n');
-                navigator.clipboard.writeText(textToCopy).then(() => {
-                    alert('错误 Tokens 已复制到剪贴板');
-                }).catch(err => {
-                    alert('复制失败，请手动复制');
-                });
-            });
-        });
-    </script>
+        .token-value {
+            overflow-wrap: anywhere;
+        }
+    </style>
 </head>
-<body class="bg-gradient-to-r from-blue-200 via-purple-200 to-pink-200 flex justify-center items-center min-h-screen">
-    <div class="bg-white p-10 rounded-lg shadow-2xl w-128 text-center">
-        <h1 class="text-4xl font-extrabold text-gray-900 mb-6">Tokens 管理</h1>
-        <p class="text-gray-600 mb-4">当前可用 Tokens 数量：<span class="text-blue-600">{{ tokens_count }}</span></p>
-        <form class="mb-2" id="uploadForm" method="post">
-            <textarea class="w-full p-4 mb-4 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none" name="text" placeholder="一行一个Token，可以是 AccessToken 或 RefreshToken" rows="10"></textarea>
-            <p class="text-gray-600 mb-2">注：使用docker时如果挂载了data文件夹则重启后不需要再次上传</p>
-            <button class="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 transition duration-300 mb-2" type="submit">上传</button>
-        </form>
-        <button id="errorButton" class="w-full bg-yellow-600 text-white py-3 rounded-md hover:bg-yellow-700 transition duration-200 mt-2">查看错误Tokens</button>
-        <p class="text-gray-600 mt-2">点击清空，将会清空上传和错误的 Tokens</p>
-        <form id="clearForm" method="post">
-            <button class="w-full bg-red-600 text-white py-3 rounded-md hover:bg-red-700 transition duration-300" type="submit">清空Tokens</button>
-        </form>
-    </div>
-    
-    <div id="errorModal" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex justify-center items-center hidden">
-        <div class="bg-white p-6 rounded-lg shadow-lg w-150">
-            <h2 class="text-2xl font-bold mb-4">错误 Tokens</h2>
-            <div id="errorModalContent" class="list-disc list-inside text-left mb-4"></div>
-            <div class="flex justify-end space-x-4">
-                <button id="errorModalCopy" class="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition duration-300">复制</button>
-                <button id="errorModalClose" class="bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition duration-300">关闭</button>
+<body class="min-h-screen text-slate-900">
+    <main class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+        <header class="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <p class="text-sm font-semibold uppercase tracking-wide text-slate-500">chat2api</p>
+                <h1 class="mt-1 text-3xl font-bold tracking-tight text-slate-950">AccessToken / RefreshToken 管理</h1>
             </div>
-        </div>
-    </div>
+            <div class="grid gap-2 sm:grid-cols-[minmax(260px,360px)_auto]">
+                <input id="adminKey" type="password" autocomplete="current-password"
+                       class="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none ring-slate-900/10 focus:border-slate-500 focus:ring-4"
+                       placeholder="管理 Key，例如 sk-tudingai-2026">
+                <button id="saveKeyButton" type="button"
+                        class="h-10 rounded-md bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800">
+                    保存并加载
+                </button>
+            </div>
+        </header>
+
+        <section class="grid gap-3 sm:grid-cols-3">
+            <div class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-sm text-slate-500">当前可用</p>
+                <p id="availableCount" class="mt-1 text-2xl font-bold">-</p>
+            </div>
+            <div class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-sm text-slate-500">异常列表</p>
+                <p id="errorCount" class="mt-1 text-2xl font-bold">-</p>
+            </div>
+            <div class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-sm text-slate-500">页面状态</p>
+                <p id="pageStatus" class="mt-1 text-sm font-semibold text-slate-700">等待加载</p>
+            </div>
+        </section>
+
+        <section class="grid gap-5 lg:grid-cols-[minmax(320px,420px)_1fr]">
+            <aside class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                    <h2 class="text-lg font-bold">添加 Token</h2>
+                    <button id="clearAllButton" type="button"
+                            class="rounded-md border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50">
+                        清空全部
+                    </button>
+                </div>
+                <textarea id="tokenInput" rows="10"
+                          class="mt-4 w-full resize-y rounded-md border border-slate-300 bg-slate-50 p-3 font-mono text-xs leading-5 outline-none focus:border-slate-500 focus:bg-white"
+                          placeholder="一行一个 Token，可粘贴 AccessToken 或 RefreshToken"></textarea>
+                <div class="mt-3 grid gap-2 sm:grid-cols-3">
+                    <button id="addButton" type="button"
+                            class="h-10 rounded-md bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800">
+                        添加到池
+                    </button>
+                    <button id="checkAllButton" type="button"
+                            class="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
+                        检测全部
+                    </button>
+                    <button id="refreshAllButton" type="button"
+                            class="h-10 rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">
+                        刷新全部 RT
+                    </button>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-500">
+                    RefreshToken 检测会尝试刷新 AccessToken；“刷新全部 RT”会强制调用 RT 换 AT 接口并更新本地缓存。
+                </p>
+            </aside>
+
+            <section class="rounded-md border border-slate-200 bg-white shadow-sm">
+                <div class="flex flex-col gap-3 border-b border-slate-200 p-4 md:flex-row md:items-center md:justify-between">
+                    <h2 class="text-lg font-bold">Token 列表</h2>
+                    <div class="flex flex-wrap gap-2">
+                        <button id="reloadButton" type="button"
+                                class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
+                            重新加载
+                        </button>
+                        <button id="hideTokensButton" type="button"
+                                class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
+                            显示明文
+                        </button>
+                    </div>
+                </div>
+                <div id="tokenList" class="divide-y divide-slate-100"></div>
+                <div id="emptyState" class="hidden p-10 text-center text-sm text-slate-500">
+                    还没有 Token。先在左侧添加一个。
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <script>
+        const apiPrefix = "{{ api_prefix }}";
+        const authRequired = "{{ authorization_required }}" === "True";
+        const base = apiPrefix === "None" ? "/tokens" : `/${apiPrefix}/tokens`;
+        const state = {
+            tokens: [],
+            reveal: false,
+            adminKey: sessionStorage.getItem("chat2api_token_admin_key") || "",
+        };
+
+        const $ = (id) => document.getElementById(id);
+
+        function setStatus(text, tone = "slate") {
+            const status = $("pageStatus");
+            const classes = {
+                slate: "mt-1 text-sm font-semibold text-slate-700",
+                amber: "mt-1 text-sm font-semibold text-amber-700",
+                emerald: "mt-1 text-sm font-semibold text-emerald-700",
+                red: "mt-1 text-sm font-semibold text-red-700",
+            };
+            status.textContent = text;
+            status.className = classes[tone] || classes.slate;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function authHeaders() {
+            const headers = { "Content-Type": "application/json" };
+            const inputKey = $("adminKey").value.trim().replace(/^Bearer\s+/i, "");
+            if (inputKey) {
+                state.adminKey = inputKey;
+                sessionStorage.setItem("chat2api_token_admin_key", inputKey);
+            }
+            if (state.adminKey) headers.Authorization = `Bearer ${state.adminKey}`;
+            return headers;
+        }
+
+        async function requestJson(path, options = {}) {
+            const response = await fetch(`${base}${path}`, {
+                ...options,
+                headers: {
+                    ...authHeaders(),
+                    ...(options.headers || {}),
+                },
+            });
+            const text = await response.text();
+            let data = {};
+            try {
+                data = text ? JSON.parse(text) : {};
+            } catch {
+                data = { detail: text };
+            }
+            if (!response.ok) {
+                throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data));
+            }
+            return data;
+        }
+
+        function badge(token) {
+            const styles = {
+                access: "bg-sky-50 text-sky-700 border-sky-200",
+                refresh: "bg-emerald-50 text-emerald-700 border-emerald-200",
+                unknown: "bg-slate-50 text-slate-700 border-slate-200",
+            };
+            return `<span class="rounded border px-2 py-0.5 text-xs font-semibold ${styles[token.type] || styles.unknown}">${token.type}</span>`;
+        }
+
+        function statusBadge(token) {
+            const styles = {
+                available: "bg-emerald-50 text-emerald-700 border-emerald-200",
+                cached: "bg-indigo-50 text-indigo-700 border-indigo-200",
+                error: "bg-red-50 text-red-700 border-red-200",
+                expired: "bg-amber-50 text-amber-700 border-amber-200",
+                unknown: "bg-slate-50 text-slate-700 border-slate-200",
+            };
+            return `<span class="rounded border px-2 py-0.5 text-xs font-semibold ${styles[token.status] || styles.unknown}">${token.status}</span>`;
+        }
+
+        function render() {
+            const list = $("tokenList");
+            const empty = $("emptyState");
+            list.innerHTML = "";
+            empty.classList.toggle("hidden", state.tokens.length > 0);
+
+            for (const token of state.tokens) {
+                const value = escapeHtml(state.reveal ? token.token : token.masked);
+                const item = document.createElement("article");
+                item.className = "grid gap-3 p-4 xl:grid-cols-[1fr_auto]";
+                item.innerHTML = `
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            ${badge(token)}
+                            ${statusBadge(token)}
+                            ${token.in_error_list ? '<span class="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">error list</span>' : ""}
+                        </div>
+                        <p class="token-value mt-3 font-mono text-xs leading-5 text-slate-800">${value}</p>
+                        <dl class="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
+                            <div><dt class="font-semibold text-slate-700">AccessToken 过期</dt><dd>${escapeHtml(token.expires_at || "-")}</dd></div>
+                            <div><dt class="font-semibold text-slate-700">缓存刷新时间</dt><dd>${escapeHtml(token.last_refreshed_at || "-")}</dd></div>
+                            <div><dt class="font-semibold text-slate-700">缓存 AccessToken</dt><dd>${escapeHtml(token.cached_access_masked || "-")}</dd></div>
+                            <div><dt class="font-semibold text-slate-700">缓存过期</dt><dd>${escapeHtml(token.cached_access_expires_at || "-")}</dd></div>
+                        </dl>
+                    </div>
+                    <div class="flex flex-wrap items-start gap-2 xl:justify-end">
+                        ${token.type === "refresh" ? `<button data-action="refresh" data-token="${encodeURIComponent(token.token)}" class="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">刷新AT</button>` : ""}
+                        <button data-action="check" data-token="${encodeURIComponent(token.token)}" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">检测</button>
+                        <button data-action="copy" data-token="${encodeURIComponent(token.token)}" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">复制</button>
+                        <button data-action="delete" data-token="${encodeURIComponent(token.token)}" class="rounded-md border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50">删除</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            }
+        }
+
+        async function loadTokens() {
+            if (authRequired && !state.adminKey) {
+                setStatus("请输入管理 Key", "amber");
+                return;
+            }
+            setStatus("加载中");
+            const data = await requestJson("/manage/list");
+            state.tokens = data.tokens || [];
+            $("availableCount").textContent = data.tokens_count ?? 0;
+            $("errorCount").textContent = data.error_tokens_count ?? 0;
+            render();
+            setStatus("已加载", "emerald");
+        }
+
+        async function addTokens() {
+            const text = $("tokenInput").value.trim();
+            if (!text) return setStatus("请先粘贴 Token", "amber");
+            const data = await requestJson("/manage/add", {
+                method: "POST",
+                body: JSON.stringify({ text }),
+            });
+            $("tokenInput").value = "";
+            setStatus(`已添加 ${data.added} 个 Token`, "emerald");
+            await loadTokens();
+        }
+
+        async function deleteToken(token) {
+            if (!confirm("确认删除这个 Token？")) return;
+            await requestJson("/manage/delete", {
+                method: "POST",
+                body: JSON.stringify({ token }),
+            });
+            setStatus("已删除", "emerald");
+            await loadTokens();
+        }
+
+        async function checkToken(token) {
+            setStatus("检测中");
+            const result = await requestJson("/manage/check", {
+                method: "POST",
+                body: JSON.stringify({ token, live: true, force_refresh: true }),
+            });
+            setStatus(result.ok ? result.message : `检测失败：${result.message}`, result.ok ? "emerald" : "red");
+            await loadTokens();
+        }
+
+        async function checkAllTokens() {
+            if (!state.tokens.length) return setStatus("没有可检测的 Token", "amber");
+            setStatus("批量检测中");
+            const data = await requestJson("/manage/check-all", { method: "POST" });
+            const okCount = (data.results || []).filter((item) => item.ok).length;
+            setStatus(`批量检测完成：${okCount}/${data.results.length} 可用`, okCount === data.results.length ? "emerald" : "amber");
+            await loadTokens();
+        }
+
+        async function refreshAccessToken(token) {
+            setStatus("正在用 RefreshToken 更新 AccessToken");
+            const result = await requestJson("/manage/refresh", {
+                method: "POST",
+                body: JSON.stringify({ token }),
+            });
+            setStatus(`${result.message}，过期时间：${result.access_token_expires_at || "-"}`, "emerald");
+            await loadTokens();
+        }
+
+        async function refreshAllAccessTokens() {
+            const refreshTokens = state.tokens.filter((token) => token.type === "refresh");
+            if (!refreshTokens.length) return setStatus("没有 RefreshToken 可刷新", "amber");
+            setStatus("正在刷新全部 RefreshToken");
+            const data = await requestJson("/manage/refresh-all", { method: "POST" });
+            const okCount = (data.results || []).filter((item) => item.ok).length;
+            setStatus(`刷新完成：${okCount}/${data.results.length} 成功`, okCount === data.results.length ? "emerald" : "amber");
+            await loadTokens();
+        }
+
+        async function clearAllTokens() {
+            if (!confirm("确认清空全部 Token、错误列表和 RefreshToken 缓存？")) return;
+            await requestJson("/clear", { method: "POST" });
+            setStatus("已清空", "emerald");
+            await loadTokens();
+        }
+
+        $("adminKey").value = state.adminKey;
+        $("saveKeyButton").addEventListener("click", async () => {
+            state.adminKey = $("adminKey").value.trim().replace(/^Bearer\s+/i, "");
+            $("adminKey").value = state.adminKey;
+            sessionStorage.setItem("chat2api_token_admin_key", state.adminKey);
+            await loadTokens().catch((error) => setStatus(error.message, "red"));
+        });
+        $("addButton").addEventListener("click", () => addTokens().catch((error) => setStatus(error.message, "red")));
+        $("reloadButton").addEventListener("click", () => loadTokens().catch((error) => setStatus(error.message, "red")));
+        $("checkAllButton").addEventListener("click", () => checkAllTokens().catch((error) => setStatus(error.message, "red")));
+        $("refreshAllButton").addEventListener("click", () => refreshAllAccessTokens().catch((error) => setStatus(error.message, "red")));
+        $("clearAllButton").addEventListener("click", () => clearAllTokens().catch((error) => setStatus(error.message, "red")));
+        $("hideTokensButton").addEventListener("click", () => {
+            state.reveal = !state.reveal;
+            $("hideTokensButton").textContent = state.reveal ? "隐藏明文" : "显示明文";
+            render();
+        });
+        $("tokenList").addEventListener("click", async (event) => {
+            const button = event.target.closest("button[data-action]");
+            if (!button) return;
+            const token = decodeURIComponent(button.dataset.token);
+            if (button.dataset.action === "refresh") await refreshAccessToken(token).catch((error) => setStatus(error.message, "red"));
+            if (button.dataset.action === "delete") await deleteToken(token).catch((error) => setStatus(error.message, "red"));
+            if (button.dataset.action === "check") await checkToken(token).catch((error) => setStatus(error.message, "red"));
+            if (button.dataset.action === "copy") {
+                await navigator.clipboard.writeText(token);
+                setStatus("已复制到剪贴板", "emerald");
+            }
+        });
+
+        loadTokens().catch((error) => setStatus(error.message, "red"));
+    </script>
 </body>
 </html>

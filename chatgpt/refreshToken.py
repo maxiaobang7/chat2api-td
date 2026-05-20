@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import random
 import time
 
@@ -9,6 +10,21 @@ from utils.Client import Client
 from utils.Logger import logger
 from utils.configs import proxy_url_list
 import utils.globals as globals
+
+REFRESH_TOKEN_ENDPOINT = os.getenv("REFRESH_TOKEN_ENDPOINT", "https://auth.openai.com/oauth/token")
+REFRESH_TOKEN_CLIENT_ID = os.getenv("REFRESH_TOKEN_CLIENT_ID", "app_LlGpXReQgckcGGUo2JrYvtJK")
+REFRESH_TOKEN_REDIRECT_URI = os.getenv(
+    "REFRESH_TOKEN_REDIRECT_URI",
+    "com.openai.chat://auth0.openai.com/ios/com.openai.chat/callback",
+)
+
+
+def mask_secret(value):
+    if not value:
+        return ""
+    if len(value) <= 18:
+        return value[:4] + "..."
+    return f"{value[:10]}...{value[-8:]}"
 
 
 async def rt2ac(refresh_token, force_refresh=False):
@@ -22,7 +38,7 @@ async def rt2ac(refresh_token, force_refresh=False):
             globals.refresh_map[refresh_token] = {"token": access_token, "timestamp": int(time.time())}
             with open(globals.REFRESH_MAP_FILE, "w") as f:
                 json.dump(globals.refresh_map, f, indent=4)
-            logger.info(f"refresh_token -> access_token with openai: {access_token}")
+            logger.info(f"refresh_token -> access_token with openai: {mask_secret(access_token)}")
             return access_token
         except HTTPException as e:
             raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -30,16 +46,16 @@ async def rt2ac(refresh_token, force_refresh=False):
 
 async def chat_refresh(refresh_token):
     data = {
-        "client_id": "pdlLIX2Y72MIl2rhLhTE9VV9bN905kBh",
+        "client_id": REFRESH_TOKEN_CLIENT_ID,
         "grant_type": "refresh_token",
-        "redirect_uri": "com.openai.chat://auth0.openai.com/ios/com.openai.chat/callback",
+        "redirect_uri": REFRESH_TOKEN_REDIRECT_URI,
         "refresh_token": refresh_token
     }
     session_id = hashlib.md5(refresh_token.encode()).hexdigest()
     proxy_url = random.choice(proxy_url_list).replace("{}", session_id) if proxy_url_list else None
     client = Client(proxy=proxy_url)
     try:
-        r = await client.post("https://auth0.openai.com/oauth/token", json=data, timeout=15)
+        r = await client.post(REFRESH_TOKEN_ENDPOINT, json=data, timeout=15)
         if r.status_code == 200:
             access_token = r.json()['access_token']
             return access_token

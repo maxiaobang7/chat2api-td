@@ -12,6 +12,7 @@ import utils.globals as globals
 from app import app, security_scheme
 from chatgpt.authorization import verify_token
 from chatgpt.fp import get_fp
+from chatgpt.refreshToken import REFRESH_TOKEN_CLIENT_ID, REFRESH_TOKEN_ENDPOINT, REFRESH_TOKEN_REDIRECT_URI
 from gateway.reverseProxy import get_real_req_token
 from utils.Client import Client
 from utils.Logger import logger
@@ -190,12 +191,12 @@ async def chatgpt_refresh(refresh_token):
     client = Client(proxy=proxy_url)
     try:
         data = {
-            "client_id": "pdlLIX2Y72MIl2rhLhTE9VV9bN905kBh",
+            "client_id": REFRESH_TOKEN_CLIENT_ID,
             "grant_type": "refresh_token",
-            "redirect_uri": "com.openai.chat://auth0.openai.com/ios/com.openai.chat/callback",
+            "redirect_uri": REFRESH_TOKEN_REDIRECT_URI,
             "refresh_token": refresh_token
         }
-        r = await client.post("https://auth0.openai.com/oauth/token", json=data, timeout=10)
+        r = await client.post(REFRESH_TOKEN_ENDPOINT, json=data, timeout=10)
         if r.status_code != 200:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         res = r.json()

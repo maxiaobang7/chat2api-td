@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse, Response
 from starlette.background import BackgroundTask
 
 import utils.globals as globals
-from chatgpt.authorization import verify_token, get_req_token
+from chatgpt.authorization import verify_token, get_req_token, is_refresh_token
 from chatgpt.fp import get_fp
 from utils.Client import Client
 from utils.Logger import logger
@@ -93,7 +93,7 @@ headers_accept_list = [
 
 async def get_real_req_token(token):
     req_token = get_req_token(token)
-    if len(req_token) == 45 or req_token.startswith("eyJhbGciOi"):
+    if is_refresh_token(req_token) or req_token.startswith("eyJhbGciOi"):
         return req_token
     else:
         req_token = get_req_token("", token)
