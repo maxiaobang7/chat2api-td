@@ -4,6 +4,7 @@ import json
 import random
 import time
 import types
+import uuid
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -42,6 +43,9 @@ class TokenCheckPayload(BaseModel):
     token: str
     live: bool = True
     force_refresh: bool = True
+
+
+CHAT_IMAGE_MODELS = {"gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini", "chatgpt-image-latest"}
 
 
 def tokens_path(path):
@@ -108,6 +112,97 @@ def format_timestamp(timestamp):
         return datetime.fromtimestamp(int(timestamp)).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
+
+
+def should_route_chat_to_image(request_data):
+    model = str(request_data.get("model", "")).strip()
+    return bool(request_data.get("image_generation")) or model in CHAT_IMAGE_MODELS
+
+
+def content_to_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if item.get("type") == "text":
+                    parts.append(str(item.get("text", "")))
+                elif isinstance(item.get("content"), str):
+                    parts.append(item["content"])
+        return "\n".join([part for part in parts if part])
+    return str(content or "")
+
+
+def prompt_from_chat_messages(messages):
+    for message in reversed(messages or []):
+        if message.get("role") == "user":
+            prompt = content_to_text(message.get("content"))
+            if prompt.strip():
+                return prompt.strip()
+    return ""
+
+
+async def image_chat_completion_response(request, request_data, req_token):
+    from api.images import ImageGenerationRequest, build_generation_prompt, image_response_from_chat
+
+    prompt = str(request_data.get("prompt") or prompt_from_chat_messages(request_data.get("messages"))).strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail={"error": "Image prompt is required"})
+
+    payload = ImageGenerationRequest(
+        prompt=prompt,
+        model=request_data.get("model", "gpt-image-2"),
+        n=request_data.get("n", 1),
+        size=request_data.get("size", "1024x1024"),
+        quality=request_data.get("quality", "auto"),
+        background=request_data.get("background"),
+        response_format=request_data.get("response_format", "url"),
+        output_format=request_data.get("output_format"),
+        user=request_data.get("user"),
+        chatgpt_model=request_data.get("chatgpt_model"),
+    )
+    image_prompt = build_generation_prompt(
+        payload.prompt,
+        size=payload.size,
+        quality=payload.quality,
+        background=payload.background,
+        output_format=payload.output_format,
+    )
+    image_response = await image_response_from_chat(req_token, payload, [{"role": "user", "content": image_prompt}], request)
+    markdown_images = []
+    for item in image_response.get("data", []):
+        if item.get("url"):
+            markdown_images.append(f"![generated image]({item['url']})")
+        elif item.get("b64_json"):
+            markdown_images.append("[generated image returned as b64_json]")
+    content = "\n".join(markdown_images) if markdown_images else "Image generated."
+    return {
+        "id": f"chatcmpl-img-{uuid.uuid4().hex}",
+        "object": "chat.completion",
+        "created": image_response.get("created", int(time.time())),
+        "model": request_data.get("model", payload.model),
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": content,
+                    "images": image_response.get("data", []),
+                },
+                "logprobs": None,
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+        "image_generation": image_response,
+    }
 
 
 def describe_token(token):
@@ -320,6 +415,9 @@ async def send_conversation(request: Request, credentials: HTTPAuthorizationCred
         request_data = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail={"error": "Invalid JSON body"})
+    if should_route_chat_to_image(request_data):
+        response = await image_chat_completion_response(request, request_data, req_token)
+        return JSONResponse(response, media_type="application/json; charset=utf-8")
     chat_service, res = await async_retry(process, request_data, req_token)
     try:
         if isinstance(res, types.AsyncGeneratorType):
