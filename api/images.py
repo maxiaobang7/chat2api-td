@@ -17,6 +17,7 @@ from chatgpt.ChatService import ChatService
 from utils.Client import Client
 from utils.Logger import logger
 from utils.configs import api_prefix
+from utils.tokenStats import record_token_usage
 
 
 IMAGE_MODEL_ALIASES = {"gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini", "chatgpt-image-latest"}
@@ -245,7 +246,7 @@ async def run_image_conversation(req_token, request_data):
                 images.append(await download_image_with_service(chat_service, image_url))
             except HTTPException as e:
                 logger.error(f"Failed to persist generated image: {e.detail}")
-        return {
+        result = {
             "content": content,
             "conversation_id": conversation_id,
             "message_id": message_id,
@@ -253,9 +254,33 @@ async def run_image_conversation(req_token, request_data):
             "images": images,
             "conversation_detail": conversation_detail,
         }
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "image"),
+            getattr(chat_service, "origin_model", request_data.get("model")),
+            success=True,
+            status_code=200,
+        )
+        return result
     except HTTPException as e:
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "image"),
+            getattr(chat_service, "origin_model", request_data.get("model")),
+            success=False,
+            status_code=e.status_code,
+            error=e.detail,
+        )
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "image"),
+            getattr(chat_service, "origin_model", request_data.get("model")),
+            success=False,
+            status_code=500,
+            error=str(e),
+        )
         logger.error(f"Image generation server error: {e}")
         raise HTTPException(status_code=500, detail="Image generation server error")
     finally:
@@ -289,6 +314,7 @@ async def image_response_from_chat(req_token, payload, messages, request):
             "messages": request_messages,
             "stream": True,
             "history_disabled": False,
+            "_usage_type": "image",
         }
         response = await run_image_conversation(req_token, request_data)
         content = response.get("content", "")

@@ -10,6 +10,7 @@ from utils.Client import Client
 from utils.Logger import logger
 from utils.configs import proxy_url_list
 import utils.globals as globals
+from utils.tokenStats import record_token_usage
 
 REFRESH_TOKEN_ENDPOINT = os.getenv("REFRESH_TOKEN_ENDPOINT", "https://auth.openai.com/oauth/token")
 REFRESH_TOKEN_CLIENT_ID = os.getenv("REFRESH_TOKEN_CLIENT_ID", "app_LlGpXReQgckcGGUo2JrYvtJK")
@@ -54,10 +55,12 @@ async def chat_refresh(refresh_token):
     session_id = hashlib.md5(refresh_token.encode()).hexdigest()
     proxy_url = random.choice(proxy_url_list).replace("{}", session_id) if proxy_url_list else None
     client = Client(proxy=proxy_url)
+    recorded_failure = False
     try:
         r = await client.post(REFRESH_TOKEN_ENDPOINT, json=data, timeout=15)
         if r.status_code == 200:
             access_token = r.json()['access_token']
+            record_token_usage(refresh_token, "refresh", "oauth/token", success=True, status_code=200)
             return access_token
         else:
             if "invalid_grant" in r.text or "access_denied" in r.text:
@@ -65,10 +68,16 @@ async def chat_refresh(refresh_token):
                     globals.error_token_list.append(refresh_token)
                     with open(globals.ERROR_TOKENS_FILE, "a", encoding="utf-8") as f:
                         f.write(refresh_token + "\n")
+                record_token_usage(refresh_token, "refresh", "oauth/token", success=False, status_code=r.status_code, error=r.text[:300])
+                recorded_failure = True
                 raise Exception(r.text)
             else:
+                record_token_usage(refresh_token, "refresh", "oauth/token", success=False, status_code=r.status_code, error=r.text[:300])
+                recorded_failure = True
                 raise Exception(r.text[:300])
     except Exception as e:
+        if not isinstance(e, HTTPException) and not recorded_failure:
+            record_token_usage(refresh_token, "refresh", "oauth/token", success=False, status_code=500, error=str(e))
         logger.error(f"Failed to refresh access_token `{refresh_token}`: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to refresh access_token.")
     finally:

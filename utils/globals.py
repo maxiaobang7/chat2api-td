@@ -12,6 +12,7 @@ WSS_MAP_FILE = os.path.join(DATA_FOLDER, "wss_map.json")
 FP_FILE = os.path.join(DATA_FOLDER, "fp_map.json")
 SEED_MAP_FILE = os.path.join(DATA_FOLDER, "seed_map.json")
 CONVERSATION_MAP_FILE = os.path.join(DATA_FOLDER, "conversation_map.json")
+TOKEN_USAGE_FILE = os.path.join(DATA_FOLDER, "token_usage.json")
 
 count = 0
 token_list = []
@@ -21,6 +22,7 @@ wss_map = {}
 fp_map = {}
 seed_map = {}
 conversation_map = {}
+token_usage_stats = {}
 impersonate_list = [
     "chrome99",
     "chrome100",
@@ -83,6 +85,15 @@ if os.path.exists(CONVERSATION_MAP_FILE):
             conversation_map = {}
 else:
     conversation_map = {}
+
+if os.path.exists(TOKEN_USAGE_FILE):
+    with open(TOKEN_USAGE_FILE, "r", encoding="utf-8") as f:
+        try:
+            token_usage_stats = json.load(f)
+        except:
+            token_usage_stats = {}
+else:
+    token_usage_stats = {}
 
 if os.path.exists(TOKENS_FILE):
     with open(TOKENS_FILE, "r", encoding="utf-8") as f:

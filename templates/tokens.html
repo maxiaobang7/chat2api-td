@@ -100,6 +100,10 @@
                                 class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">
                             显示明文
                         </button>
+                        <button id="resetUsageButton" type="button"
+                                class="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-800 hover:bg-amber-100">
+                            清空统计
+                        </button>
                     </div>
                 </div>
                 <div id="tokenList" class="divide-y divide-slate-100"></div>
@@ -203,6 +207,8 @@
 
             for (const token of state.tokens) {
                 const value = escapeHtml(state.reveal ? token.token : token.masked);
+                const usage = token.usage || {};
+                const lastError = usage.last_error ? `<div class="md:col-span-2"><dt class="font-semibold text-red-700">最近错误</dt><dd class="token-value text-red-700">${escapeHtml(usage.last_error)}</dd></div>` : "";
                 const item = document.createElement("article");
                 item.className = "grid gap-3 p-4 xl:grid-cols-[1fr_auto]";
                 item.innerHTML = `
@@ -218,6 +224,11 @@
                             <div><dt class="font-semibold text-slate-700">缓存刷新时间</dt><dd>${escapeHtml(token.last_refreshed_at || "-")}</dd></div>
                             <div><dt class="font-semibold text-slate-700">缓存 AccessToken</dt><dd>${escapeHtml(token.cached_access_masked || "-")}</dd></div>
                             <div><dt class="font-semibold text-slate-700">缓存过期</dt><dd>${escapeHtml(token.cached_access_expires_at || "-")}</dd></div>
+                            <div><dt class="font-semibold text-slate-700">调用总数</dt><dd>${usage.total ?? 0} 次，成功 ${usage.success ?? 0} / 失败 ${usage.failure ?? 0}</dd></div>
+                            <div><dt class="font-semibold text-slate-700">最近频率</dt><dd>1小时 ${usage.last_1h ?? 0} 次，24小时 ${usage.last_24h ?? 0} 次</dd></div>
+                            <div><dt class="font-semibold text-slate-700">最近使用</dt><dd>${escapeHtml(usage.last_used_at || "-")}</dd></div>
+                            <div><dt class="font-semibold text-slate-700">最近成功</dt><dd>${escapeHtml(usage.last_success_at || "-")}</dd></div>
+                            ${lastError}
                         </dl>
                     </div>
                     <div class="flex flex-wrap items-start gap-2 xl:justify-end">
@@ -313,6 +324,13 @@
             await loadTokens();
         }
 
+        async function resetUsage() {
+            if (!confirm("确认清空所有 Token 的调用统计？Token 本身不会删除。")) return;
+            await requestJson("/manage/usage/reset", { method: "POST" });
+            setStatus("调用统计已清空", "emerald");
+            await loadTokens();
+        }
+
         $("adminKey").value = state.adminKey;
         $("saveKeyButton").addEventListener("click", async () => {
             state.adminKey = $("adminKey").value.trim().replace(/^Bearer\s+/i, "");
@@ -325,6 +343,7 @@
         $("checkAllButton").addEventListener("click", () => checkAllTokens().catch((error) => setStatus(error.message, "red")));
         $("refreshAllButton").addEventListener("click", () => refreshAllAccessTokens().catch((error) => setStatus(error.message, "red")));
         $("clearAllButton").addEventListener("click", () => clearAllTokens().catch((error) => setStatus(error.message, "red")));
+        $("resetUsageButton").addEventListener("click", () => resetUsage().catch((error) => setStatus(error.message, "red")));
         $("hideTokensButton").addEventListener("click", () => {
             state.reveal = !state.reveal;
             $("hideTokensButton").textContent = state.reveal ? "隐藏明文" : "显示明文";

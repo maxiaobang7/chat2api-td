@@ -22,6 +22,7 @@ from chatgpt.fp import get_fp
 from chatgpt.refreshToken import rt2ac
 from utils.Client import Client
 from utils.Logger import logger
+from utils.tokenStats import delete_token_usage, record_token_usage, reset_token_usage, summarize_token_usage
 from utils.configs import api_prefix, scheduled_refresh, authorization_list, chatgpt_base_url_list, proxy_url_list, oai_language
 from utils.retry import async_retry
 
@@ -135,6 +136,7 @@ def describe_token(token):
         "cached_access_masked": mask_token(cached_access) if cached_access else None,
         "cached_access_expires_at": format_timestamp(cached_payload.get("exp")),
         "last_refreshed_at": format_timestamp(cached_at),
+        "usage": summarize_token_usage(token),
     }
 
 
@@ -250,9 +252,25 @@ async def to_send_conversation(request_data, req_token):
         await chat_service.get_chat_requirements()
         return chat_service
     except HTTPException as e:
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "chat"),
+            request_data.get("model"),
+            success=False,
+            status_code=e.status_code,
+            error=e.detail,
+        )
         await chat_service.close_client()
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "chat"),
+            request_data.get("model"),
+            success=False,
+            status_code=500,
+            error=str(e),
+        )
         await chat_service.close_client()
         logger.error(f"Server error, {str(e)}")
         raise HTTPException(status_code=500, detail="Server error")
@@ -260,9 +278,39 @@ async def to_send_conversation(request_data, req_token):
 
 async def process(request_data, req_token):
     chat_service = await to_send_conversation(request_data, req_token)
-    await chat_service.prepare_send_conversation()
-    res = await chat_service.send_conversation()
-    return chat_service, res
+    try:
+        await chat_service.prepare_send_conversation()
+        res = await chat_service.send_conversation()
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "chat"),
+            getattr(chat_service, "origin_model", request_data.get("model")),
+            success=True,
+            status_code=200,
+        )
+        return chat_service, res
+    except HTTPException as e:
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "chat"),
+            getattr(chat_service, "origin_model", request_data.get("model")),
+            success=False,
+            status_code=e.status_code,
+            error=e.detail,
+        )
+        await chat_service.close_client()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except Exception as e:
+        record_token_usage(
+            chat_service.req_token,
+            request_data.get("_usage_type", "chat"),
+            getattr(chat_service, "origin_model", request_data.get("model")),
+            success=False,
+            status_code=500,
+            error=str(e),
+        )
+        await chat_service.close_client()
+        raise
 
 
 @app.post(f"/{api_prefix}/v1/chat/completions" if api_prefix else "/v1/chat/completions")
@@ -323,6 +371,7 @@ async def clear_tokens(credentials: HTTPAuthorizationCredentials | None = Securi
     globals.token_list.clear()
     globals.error_token_list.clear()
     globals.refresh_map.clear()
+    reset_token_usage()
     save_token_file()
     save_error_token_file()
     with open(globals.REFRESH_MAP_FILE, "w", encoding="utf-8") as f:
@@ -362,6 +411,30 @@ async def managed_tokens(credentials: HTTPAuthorizationCredentials | None = Secu
     }
 
 
+@app.get(tokens_path("/manage/usage"))
+async def managed_token_usage(credentials: HTTPAuthorizationCredentials | None = Security(optional_security_scheme)):
+    require_token_admin(credentials)
+    return {
+        "status": "success",
+        "tokens": [
+            {
+                "id": hashlib.sha256(token.encode()).hexdigest(),
+                "masked": mask_token(token),
+                "type": token_kind(token),
+                "usage": summarize_token_usage(token),
+            }
+            for token in dedupe_tokens(globals.token_list)
+        ],
+    }
+
+
+@app.post(tokens_path("/manage/usage/reset"))
+async def managed_reset_token_usage(credentials: HTTPAuthorizationCredentials | None = Security(optional_security_scheme)):
+    require_token_admin(credentials)
+    reset_token_usage()
+    return {"status": "success"}
+
+
 @app.post(tokens_path("/manage/add"))
 async def managed_add_tokens(payload: TokenTextPayload, credentials: HTTPAuthorizationCredentials | None = Security(optional_security_scheme)):
     require_token_admin(credentials)
@@ -387,6 +460,7 @@ async def managed_delete_token(payload: TokenPayload, credentials: HTTPAuthoriza
     globals.token_list[:] = [item for item in globals.token_list if item != token]
     globals.error_token_list[:] = [item for item in globals.error_token_list if item != token]
     globals.refresh_map.pop(token, None)
+    delete_token_usage(token)
     save_token_file()
     save_error_token_file()
     with open(globals.REFRESH_MAP_FILE, "w", encoding="utf-8") as f:
