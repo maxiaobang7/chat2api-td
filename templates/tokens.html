@@ -199,6 +199,41 @@
             return `<span class="rounded border px-2 py-0.5 text-xs font-semibold ${styles[token.status] || styles.unknown}">${token.status}</span>`;
         }
 
+        function usageRecordTypeLabel(type) {
+            const labels = {
+                chat: "文字",
+                image: "图片",
+                refresh: "刷新",
+            };
+            return labels[type] || type || "-";
+        }
+
+        function renderUsageRecords(records, emptyText) {
+            if (!records.length) {
+                return `<p class="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500">${emptyText}</p>`;
+            }
+            return records.map((event) => {
+                const okClass = event.success ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-red-700 bg-red-50 border-red-200";
+                const okText = event.success ? "成功" : "失败";
+                const statusText = event.status_code ? `HTTP ${event.status_code}` : "";
+                const errorText = event.error ? `<p class="token-value mt-1 text-red-700">${escapeHtml(event.error)}</p>` : "";
+                return `
+                    <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <span class="font-semibold text-slate-800">${escapeHtml(event.time || "-")}</span>
+                            <span class="rounded border px-2 py-0.5 font-semibold ${okClass}">${okText}</span>
+                        </div>
+                        <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                            <span>${usageRecordTypeLabel(event.type)}</span>
+                            <span>${escapeHtml(event.model || "-")}</span>
+                            <span>${escapeHtml(statusText)}</span>
+                        </div>
+                        ${errorText}
+                    </div>
+                `;
+            }).join("");
+        }
+
         function render() {
             const list = $("tokenList");
             const empty = $("emptyState");
@@ -208,6 +243,11 @@
             for (const token of state.tokens) {
                 const value = escapeHtml(state.reveal ? token.token : token.masked);
                 const usage = token.usage || {};
+                const usageTypes = usage.types || {};
+                const recent = usage.recent || [];
+                const chatRecords = recent.filter((event) => event.type === "chat").slice().reverse();
+                const imageRecords = recent.filter((event) => event.type === "image").slice().reverse();
+                const refreshRecords = recent.filter((event) => event.type === "refresh").slice().reverse();
                 const lastError = usage.last_error ? `<div class="md:col-span-2"><dt class="font-semibold text-red-700">最近错误</dt><dd class="token-value text-red-700">${escapeHtml(usage.last_error)}</dd></div>` : "";
                 const item = document.createElement("article");
                 item.className = "grid gap-3 p-4 xl:grid-cols-[1fr_auto]";
@@ -230,6 +270,38 @@
                             <div><dt class="font-semibold text-slate-700">最近成功</dt><dd>${escapeHtml(usage.last_success_at || "-")}</dd></div>
                             ${lastError}
                         </dl>
+                        <section class="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                            <div class="grid gap-2 text-xs sm:grid-cols-3">
+                                <div class="rounded-md border border-slate-200 bg-white p-3">
+                                    <p class="font-semibold text-slate-700">文字调用</p>
+                                    <p class="mt-1 text-lg font-bold text-slate-950">${usageTypes.chat || 0}</p>
+                                </div>
+                                <div class="rounded-md border border-slate-200 bg-white p-3">
+                                    <p class="font-semibold text-slate-700">图片调用</p>
+                                    <p class="mt-1 text-lg font-bold text-slate-950">${usageTypes.image || 0}</p>
+                                </div>
+                                <div class="rounded-md border border-slate-200 bg-white p-3">
+                                    <p class="font-semibold text-slate-700">刷新调用</p>
+                                    <p class="mt-1 text-lg font-bold text-slate-950">${usageTypes.refresh || 0}</p>
+                                </div>
+                            </div>
+                            <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                                <div>
+                                    <h3 class="mb-2 text-xs font-bold text-slate-700">最近文字记录</h3>
+                                    <div class="grid gap-2">${renderUsageRecords(chatRecords, "暂无文字调用记录")}</div>
+                                </div>
+                                <div>
+                                    <h3 class="mb-2 text-xs font-bold text-slate-700">最近图片记录</h3>
+                                    <div class="grid gap-2">${renderUsageRecords(imageRecords, "暂无图片调用记录")}</div>
+                                </div>
+                            </div>
+                            ${refreshRecords.length ? `
+                                <div class="mt-3">
+                                    <h3 class="mb-2 text-xs font-bold text-slate-700">最近刷新记录</h3>
+                                    <div class="grid gap-2">${renderUsageRecords(refreshRecords, "暂无刷新记录")}</div>
+                                </div>
+                            ` : ""}
+                        </section>
                     </div>
                     <div class="flex flex-wrap items-start gap-2 xl:justify-end">
                         ${token.type === "refresh" ? `<button data-action="refresh" data-token="${encodeURIComponent(token.token)}" class="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">刷新AT</button>` : ""}
