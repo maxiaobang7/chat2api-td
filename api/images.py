@@ -71,7 +71,13 @@ def build_generation_prompt(prompt, size="1024x1024", quality="auto", background
     if output_format:
         requirements.append(f"Preferred output format: {output_format}")
     if edit:
-        requirements.append("Use the attached image or images as visual references and apply the user's requested edit.")
+        requirements.extend([
+            "Use the attached image or images as visual references and apply the user's requested edit.",
+            "Make the result visibly different from the source image. Do not return a near-identical photo.",
+            "Preserve the main subject and core pose when helpful, but clearly add creative transformation.",
+            "For reference-image edits, always make obvious visual changes such as smart retouching, doodles, text, stickers, brush marks, graphic overlays, color accents, or background stylization when requested or appropriate.",
+            "If the prompt is broad or ambiguous, favor a stronger creative editorial transformation over minimal beautification.",
+        ])
     requirements.append("Return the final generated image. Keep any text response brief.")
     return "\n".join(requirements)
 
