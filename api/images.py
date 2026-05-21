@@ -16,11 +16,12 @@ from app import app, security_scheme
 from chatgpt.ChatService import ChatService
 from utils.Client import Client
 from utils.Logger import logger
-from utils.configs import api_prefix
+from utils.configs import api_prefix, file_host
 from utils.tokenStats import record_token_usage
 
 
 IMAGE_MODEL_ALIASES = {"gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini", "chatgpt-image-latest"}
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_CHATGPT_IMAGE_MODEL = os.getenv("IMAGE_GENERATION_MODEL", "gpt-4o")
 MAX_IMAGE_COUNT = int(os.getenv("IMAGE_GENERATION_MAX_N", "4"))
 IMAGE_GENERATION_POLL_TIMEOUT = int(os.getenv("IMAGE_GENERATION_POLL_TIMEOUT", "240"))
@@ -31,7 +32,7 @@ os.makedirs(GENERATED_IMAGES_DIR, exist_ok=True)
 
 class ImageGenerationRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
-    model: str = "gpt-image-1.5"
+    model: str = DEFAULT_IMAGE_MODEL
     n: int = Field(default=1, ge=1)
     size: str = "1024x1024"
     quality: str = "auto"
@@ -141,7 +142,14 @@ def save_generated_image(image):
 
 
 def public_url_for_image(request, image_id):
-    return str(request.base_url).rstrip("/") + public_images_path(f"/files/{image_id}")
+    host = file_host or str(request.base_url).rstrip("/")
+    return host.rstrip("/") + public_images_path(f"/files/{image_id}")
+
+
+def normalize_image_size(size):
+    if not size or str(size).lower() == "auto":
+        return "1024x1024"
+    return size
 
 
 async def extract_image_urls_from_conversation(service, conversation_id, conversation):
@@ -384,7 +392,7 @@ async def create_image_edit(
     request: Request,
     prompt: str = Form(...),
     image: list[UploadFile] = File(...),
-    model: str = Form("gpt-image-1.5"),
+    model: str = Form(DEFAULT_IMAGE_MODEL),
     n: int = Form(1),
     size: str = Form("1024x1024"),
     quality: str = Form("auto"),
@@ -394,6 +402,7 @@ async def create_image_edit(
     chatgpt_model: str | None = Form(None),
     credentials: HTTPAuthorizationCredentials = Security(security_scheme),
 ):
+    size = normalize_image_size(size)
     content = [
         {
             "type": "text",

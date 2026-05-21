@@ -191,7 +191,7 @@ def prompt_from_chat_messages(messages):
 
 
 async def image_chat_completion_response(request, request_data, req_token):
-    from api.images import ImageGenerationRequest, build_generation_prompt, image_response_from_chat
+    from api.images import ImageGenerationRequest, build_generation_prompt, image_response_from_chat, normalize_image_size
 
     prompt = str(request_data.get("prompt") or prompt_from_chat_messages(request_data.get("messages"))).strip()
     if not prompt:
@@ -201,7 +201,7 @@ async def image_chat_completion_response(request, request_data, req_token):
         prompt=prompt,
         model=request_data.get("model", "gpt-image-2"),
         n=request_data.get("n", 1),
-        size=request_data.get("size", "1024x1024"),
+        size=normalize_image_size(request_data.get("size", "1024x1024")),
         quality=request_data.get("quality", "auto"),
         background=request_data.get("background"),
         response_format=request_data.get("response_format", "url"),
