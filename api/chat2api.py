@@ -136,6 +136,51 @@ def content_to_text(content):
     return str(content or "")
 
 
+def normalize_image_reference(item):
+    if isinstance(item, str):
+        return {"type": "image_url", "image_url": {"url": item}}
+    if not isinstance(item, dict):
+        return None
+    if item.get("type") == "image_url":
+        image_url = item.get("image_url")
+        if isinstance(image_url, str):
+            return {"type": "image_url", "image_url": {"url": image_url}}
+        if isinstance(image_url, dict) and image_url.get("url"):
+            return {"type": "image_url", "image_url": image_url}
+    if item.get("type") in {"input_image", "image"}:
+        image_url = item.get("image_url") or item.get("url")
+        if isinstance(image_url, dict):
+            image_url = image_url.get("url")
+        if image_url:
+            return {"type": "image_url", "image_url": {"url": image_url}}
+    return None
+
+
+def image_references_from_content(content):
+    if not isinstance(content, list):
+        return []
+    refs = []
+    for item in content:
+        ref = normalize_image_reference(item)
+        if ref:
+            refs.append(ref)
+    return refs
+
+
+def image_references_from_request(request_data):
+    refs = []
+    for message in request_data.get("messages") or []:
+        refs.extend(image_references_from_content(message.get("content")))
+    extra_images = request_data.get("images") or request_data.get("image") or []
+    if isinstance(extra_images, (str, dict)):
+        extra_images = [extra_images]
+    for item in extra_images:
+        ref = normalize_image_reference(item)
+        if ref:
+            refs.append(ref)
+    return refs
+
+
 def prompt_from_chat_messages(messages):
     for message in reversed(messages or []):
         if message.get("role") == "user":
@@ -164,14 +209,20 @@ async def image_chat_completion_response(request, request_data, req_token):
         user=request_data.get("user"),
         chatgpt_model=request_data.get("chatgpt_model"),
     )
+    image_refs = image_references_from_request(request_data)
     image_prompt = build_generation_prompt(
         payload.prompt,
         size=payload.size,
         quality=payload.quality,
         background=payload.background,
         output_format=payload.output_format,
+        edit=bool(image_refs),
     )
-    image_response = await image_response_from_chat(req_token, payload, [{"role": "user", "content": image_prompt}], request)
+    if image_refs:
+        image_messages = [{"role": "user", "content": [{"type": "text", "text": image_prompt}, *image_refs]}]
+    else:
+        image_messages = [{"role": "user", "content": image_prompt}]
+    image_response = await image_response_from_chat(req_token, payload, image_messages, request)
     markdown_images = []
     for item in image_response.get("data", []):
         if item.get("url"):
